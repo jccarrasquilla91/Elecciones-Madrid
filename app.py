@@ -43,8 +43,12 @@ def load_and_normalize_data():
         'COLEGIO  SAN  JOSE': 'IED San José',
         'PUENTE DE PIEDRA': 'IED San Patricio Puente de Piedra'
     }
-    df_2022_raw['PUESNOMBRE_NORM'] = df_2022_raw['PUESNOMBRE'].strip().map(homologacion).fillna(df_2022_raw['PUESNOMBRE'])
+    # Usamos .str para poder aplicar el método strip() a cada texto de la columna
+    df_2022_raw['PUESNOMBRE_NORM'] = df_2022_raw['PUESNOMBRE'].str.strip().map(homologacion).fillna(df_2022_raw['PUESNOMBRE'])
     
+
+
+
     # --- PROCESAR HISTÓRICO 2022 (Ejemplo con candidato GUSTAVO PETRO) ---
     totales_puesto_2022 = df_2022_raw.groupby('PUESNOMBRE_NORM')['VOTOS'].sum().reset_index().rename(columns={'VOTOS': 'TOTAL_VOTOS_2022'})
     petro_2022 = df_2022_raw[df_2022_raw['CANNOMBRE'] == 'GUSTAVO PETRO'].groupby('PUESNOMBRE_NORM')['VOTOS'].sum().reset_index().rename(columns={'VOTOS': 'VOTOS_PETRO_2022'})
@@ -135,3 +139,4 @@ with col2:
                 <span style="color: #1A5276; font-weight: bold;">{row['PORCENTAJE_ACTUAL']:.1f}% • {int(row['VOTOS_ACTUAL']):,} votos</span>
             </div>
         """, unsafe_allow_html=True)
+
