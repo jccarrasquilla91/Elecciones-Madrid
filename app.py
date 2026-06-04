@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
+import matplotlib.pyplot as plt
+import seaborn as sns
 import re
 
 st.set_page_config(page_title="Estrategia Electoral Madrid", layout="wide")
@@ -20,9 +22,23 @@ def extract_coords(wkt_str):
 def load_and_normalize_data():
     # Cargar datos actuales
     df_actual = pd.read_csv("MMV_XXX_15_160_XXX_XX_XX_XXX_2496_normalizado.csv", sep=";")
-    # Filtrar filas de control que alteran los totales reales
     df_actual = df_actual[~df_actual['PARNOMBRE'].isin(['CANDIDATOS TOTALES'])]
     df_actual = df_actual[~df_actual['CANNOMBRE'].isin(['CANDIDATOS TOTALES'])]
+    
+    # Acortar nombres de candidatos para los gráficos estilo tus referentes
+    mapeo_nombres = {
+        'IVÁN CEPEDA CASTRO': 'Cepeda',
+        'ABELARDO DE LA ESPRIELLA': 'De la Espriella',
+        'PALOMA VALENCIA LASERNA': 'P. Valencia',
+        'SERGIO FAJARDO VALDERRAMA': 'Fajardo',
+        'CLAUDIA LÓPEZ': 'C. López',
+        'RAÚL SANTIAGO BOTERO JARAMILLO': 'Botero J.',
+        'ÓSCAR MAURICIO LIZCANO ARANGO': 'Lizcano',
+        'MIGUEL URIBE LONDOÑO': 'M. Uribe',
+        'LUIS GILBERTO MURILLO URRUTIA': 'Murillo',
+        'ROY BARRERAS': 'Barreras'
+    }
+    df_actual['CANDIDATO_CORTO'] = df_actual['CANNOMBRE'].map(mapeo_nombres).fillna(df_actual['CANNOMBRE'])
     
     # Cargar datos 2022
     df_2022_raw = pd.read_csv("2022.csv", sep=";")
@@ -79,34 +95,33 @@ def load_and_normalize_data():
 
 df_actual, df_final = load_and_normalize_data()
 
-# 3. INTERFAZ DE PESTAÑAS (TABS)
-st.title("🗳️ Centro de Inteligencia Electoral - Madrid")
+# 3. MAQUETACIÓN EN PESTAÑAS
+st.title("🎯 Centro de Analítica Electoral - Madrid, Cundinamarca")
 st.write("---")
 
-# Definición de las pestañas principales
-tab1, tab2, tab3 = st.tabs(["🎯 Cuarto de Guerra (General)", "👥 Análisis por Candidato", "🏫 Radiografía de Puestos"])
+tab1, tab2 = st.tabs(["🗺️ Mapa Estratégico y Alertas", "📈 Gráficos Avanzados de Dominancia"])
 
-# ==========================================
-# PESTAÑA 1: CUARTO DE GUERRA
-# ==========================================
+# =========================================================
+# PESTAÑA 1: MAPA Y ESTRATEGIA ("CUARTO DE GUERRA")
+# =========================================================
 with tab1:
     tot_votos_mun = int(df_final['TOTAL_VOTOS_ACTUAL'].sum())
-    st.metric("Votos Válidos Totales en el Municipio", f"{tot_votos_mun:,} votos")
+    st.metric("Votos Válidos Municipales (Periodo Actual)", f"{tot_votos_mun:,} votos")
     
     col1, col2 = st.columns([1.8, 1.2])
     with col1:
-        st.subheader("Mapa de Rendimiento Territorial")
+        st.subheader("Rendimiento Territorial Territorial")
         m = folium.Map(location=[4.7324, -74.2642], zoom_start=13, tiles="CartoDB positron")
         
         for idx, row in df_final.iterrows():
             if row['ES_NUEVO']:
-                color_indicador = "#3498DB"
+                color_indicador = "#3498DB"  # Azul claro para puestos nuevos
                 texto_variacion = "Puesto Nuevo (Sin histórico)"
             else:
-                color_indicador = "#C0392B" if row['DELTA_PTS'] < 0 else "#5B2C6F"
+                color_indicador = "#C0392B" if row['DELTA_PTS'] < 0 else "#5B2C6F"  # Rojo o Morado
                 texto_variacion = f"Variación: {row['DELTA_PTS']:.1f} pts"
             
-            popup_html = f"<b>{row['PUESNOMBRE']}</b><br>{texto_variacion}<br><b>Potencial Actual:</b> {int(row['TOTAL_VOTOS_ACTUAL']):,}"
+            popup_html = f"<b>{row['PUESNOMBRE']}</b><br>{texto_variacion}<br><b>Votos Actuales:</b> {int(row['TOTAL_VOTOS_ACTUAL']):,}"
             
             folium.CircleMarker(
                 location=[row['latitude'], row['longitude']],
@@ -142,73 +157,93 @@ with tab1:
                 </div>
             """, unsafe_allow_html=True)
 
-# ==========================================
-# PESTAÑA 2: ANÁLISIS POR CANDIDATO
-# ==========================================
+# =========================================================
+# PESTAÑA 2: COMPLEMENTO - GRÁFICOS AVANZADOS
+# =========================================================
 with tab2:
-    st.subheader("Desglose de Votación por Líder Político")
-    st.write("Selecciona un candidato para ver cómo se distribuyeron sus votos en cada infraestructura electoral del municipio.")
+    st.subheader("Galería de Inteligencia Analítica")
+    st.write("Selecciona una opción del menú para renderizar los gráficos de distribución y cruces matriciales.")
     
-    # Selector de candidato único de la lista
-    lista_candidatos = df_actual['CANNOMBRE'].unique().tolist()
-    cand_sel = st.selectbox("Selecciona el Candidato a evaluar:", lista_candidatos)
+    opcion_grafico = st.selectbox("Selecciona la visualización estratégica:", [
+        "1. Ranking General de Votos por Candidato",
+        "2. Ganador Absoluto por Puesto de Votación",
+        "3. Participación Porcentual de cada Candidato por Puesto (Apilado)",
+        "4. Mapa de Calor: Dominancia Territorial por Candidato (%)",
+        "5. Comparativo de Votos Absolutos por Puesto y Candidato (Matriz)"
+    ])
     
-    # Calcular matriz de votación por puesto para ese candidato
-    df_cand_puestos = df_actual[df_actual['CANNOMBRE'] == cand_sel].groupby('PUESNOMBRE')['VOTOS'].sum().reset_index()
-    
-    # Unir con el total del puesto para calcular el peso relativo (%)
-    df_cand_puestos = pd.merge(df_cand_puestos, df_final[['PUESNOMBRE', 'TOTAL_VOTOS_ACTUAL']], on='PUESNOMBRE')
-    df_cand_puestos['% Participación'] = (df_cand_puestos['VOTOS'] / df_cand_puestos['TOTAL_VOTOS_ACTUAL']) * 100
-    df_cand_puestos = df_cand_puestos.sort_values(by='VOTOS', ascending=False).reset_index(drop=True)
-    
-    # Formatear la tabla para presentación ejecutiva
-    df_cand_puestos.columns = ['Puesto de Votación', 'Votos Obtenidos', 'Votos Totales del Puesto', '% de Fuerza']
-    
-    # Mostrar KPI Global del candidato seleccionado
-    votos_tot_cand = df_cand_puestos['Votos Obtenidos'].sum()
-    porc_global_cand = (votos_tot_cand / tot_votos_mun) * 100
-    
-    col_c1, col_c2 = st.columns(2)
-    col_c1.metric(f"Votos Totales de {cand_sel}", f"{votos_tot_cand:,} votos")
-    col_c2.metric("Porcentaje sobre el total de Madrid", f"{porc_global_cand:.2f}%")
-    
-    # Gráfico de barras del rendimiento del candidato por puesto
-    st.markdown(f"#### Fuerza de {cand_sel} por Puesto de Votación")
-    st.bar_chart(data=df_cand_puestos, x='Puesto de Votación', y='Votos Obtenidos', color="#5B2C6F")
-    
-    # Mostrar tabla interactiva de consulta pública
-    st.markdown("#### Tabla Completa de Datos")
-    st.dataframe(df_cand_puestos.style.format({'Votos Obtenidos': '{:,}', 'Votos Totales del Puesto': '{:,}', '% de Fuerza': '{:.2f}%'}), use_container_width=True)
+    # Gráfico 1: Ranking General
+    if opcion_grafico == "1. Ranking General de Votos por Candidato":
+        ranking_gen = df_actual.groupby('CANDIDATO_CORTO')['VOTOS'].sum().sort_values(ascending=False).reset_index()
+        fig, ax = plt.subplots(figsize=(10, 5))
+        sns.barplot(data=ranking_gen, x='VOTOS', y='CANDIDATO_CORTO', palette="tab10", ax=ax)
+        for index, value in enumerate(ranking_gen['VOTOS']):
+            ax.text(value + 100, index, f"{value:,}", va='center', fontsize=10)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        plt.title("Ranking general de votos por candidato\nMadrid, Cundinamarca", fontsize=12, fontweight='bold', pad=15)
+        plt.xlabel("Total de votos")
+        plt.ylabel("Candidato")
+        st.pyplot(fig)
 
-# ==========================================
-# PESTAÑA 3: RADIOGRAFÍA DE PUESTOS
-# ==========================================
-with tab3:
-    st.subheader("Consulta de Datos por Colegio / Salón Comunal")
-    
-    puesto_radiografia = st.selectbox("Selecciona un Puesto específico para ver su informe:", df_final['PUESNOMBRE'])
-    
-    df_puesto_especifico = df_actual[df_actual['PUESNOMBRE'] == puesto_radiografia]
-    
-    # Agrupar votos por candidatos en ese puesto específico
-    votos_cand_puesto = df_puesto_especifico.groupby(['CANNOMBRE', 'PARNOMBRE'])['VOTOS'].sum().reset_index()
-    votos_cand_puesto = votos_cand_puesto.sort_values(by='VOTOS', ascending=False).reset_index(drop=True)
-    votos_cand_puesto.columns = ['Candidato', 'Partido / Coalición', 'Votos']
-    
-    col_r1, col_r2 = st.columns([1, 2])
-    
-    with col_r1:
-        st.markdown("#### Resumen del Puesto")
-        info_general_puesto = df_final[df_final['PUESNOMBRE'] == puesto_radiografia].iloc[0]
-        st.write(f"**Votos Válidos Actuales:** {int(info_general_puesto['TOTAL_VOTOS_ACTUAL']):,}")
-        if info_general_puesto['ES_NUEVO']:
-            st.info("✨ Este puesto es nuevo para este periodo electoral.")
-        else:
-            st.write(f"**Variación frente a 2022:** {info_general_puesto['DELTA_PTS']:.2f} puntos")
-            
-        st.markdown("##### Distribución de Fuerza")
-        st.dataframe(votos_cand_puesto.style.format({'Votos': '{:,}'}), use_container_width=True)
+    # Gráfico 2: Ganador por Puesto
+    elif opcion_grafico == "2. Ganador Absoluto por Puesto de Votación":
+        puesto_cand = df_actual.groupby(['PUESNOMBRE', 'CANDIDATO_CORTO'])['VOTOS'].sum().reset_index()
+        idx_ganadores = puesto_cand.groupby('PUESNOMBRE')['VOTOS'].idxmax()
+        ganadores_puesto = puesto_cand.loc[idx_ganadores].sort_values(by='VOTOS', ascending=False)
         
-    with col2:
-        st.markdown("#### Distribución de Votos en este Puesto")
-        st.bar_chart(data=votos_cand_puesto, x='Candidato', y='Votos', color="#2E86C1")
+        fig, ax = plt.subplots(figsize=(12, 7))
+        colores_ganadores = {"Cepeda": "#B03A2E", "De la Espriella": "#2E86C1"}
+        sns.barplot(data=ganadores_puesto, x='VOTOS', y='PUESNOMBRE', hue='CANDIDATO_CORTO', palette=colores_ganadores, dodge=False, ax=ax)
+        for index, row in enumerate(ganadores_puesto.itertuples()):
+            ax.text(row.VOTOS + 30, index, f"{row.CANDIDATO_CORTO} ({row.VOTOS:,})", va='center', fontsize=9)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        plt.title("Ganador por puesto de votación\nMadrid, Cundinamarca", fontsize=12, fontweight='bold', pad=15)
+        plt.xlabel("Votos del ganador en el puesto")
+        plt.ylabel("Puesto de votación")
+        st.pyplot(fig)
+
+    # Gráfico 3: Barras Apiladas
+    elif opcion_grafico == "3. Participación Porcentual de cada Candidato por Puesto (Apilado)":
+        matriz_votos = df_actual.pivot_table(index='PUESNOMBRE', columns='CANDIDATO_CORTO', values='VOTOS', aggfunc='sum').fillna(0)
+        matriz_porcentaje = matriz_votos.div(matriz_votos.sum(axis=1), axis=0) * 100
+        matriz_porcentaje = matriz_porcentaje.loc[matriz_votos.sum(axis=1).sort_values(ascending=False).index]
+        
+        fig, ax = plt.subplots(figsize=(14, 7))
+        matriz_porcentaje.plot(kind='bar', stacked=True, ax=ax, cmap="tab20")
+        plt.title("Participación porcentual de cada candidato por puesto\nMadrid, Cundinamarca", fontsize=12, fontweight='bold', pad=15)
+        plt.xticks(rotation=45, ha='right', fontsize=9)
+        plt.ylabel("Participación (%)")
+        plt.xlabel("Puesto de votación")
+        plt.legend(title="Candidato", bbox_to_anchor=(1.01, 1), loc='upper left')
+        st.pyplot(fig)
+
+    # Gráfico 4: Heatmap Porcentual
+    elif opcion_grafico == "4. Mapa de Calor: Dominancia Territorial por Candidato (%)":
+        matriz_votos = df_actual.pivot_table(index='PUESNOMBRE', columns='CANDIDATO_CORTO', values='VOTOS', aggfunc='sum').fillna(0)
+        matriz_porcentaje = matriz_votos.div(matriz_votos.sum(axis=1), axis=0) * 100
+        top_cand_global = df_actual.groupby('CANDIDATO_CORTO')['VOTOS'].sum().sort_values(ascending=False).index
+        matriz_porcentaje = matriz_porcentaje[top_cand_global].sort_values(by=top_cand_global[0], ascending=False)
+        
+        fig, ax = plt.subplots(figsize=(14, 8))
+        sns.heatmap(matriz_porcentaje, annot=True, fmt=".1f", cmap="YlOrRd", linewidths=.5, cbar_kws={'label': '% de votos en el puesto'}, ax=ax)
+        plt.title("Mapa de calor: dominancia territorial por candidato (%)\nMadrid, Cundinamarca", fontsize=12, fontweight='bold', pad=15)
+        plt.xticks(rotation=35, ha='right')
+        plt.xlabel("Candidato")
+        plt.ylabel("Puesto de votación")
+        st.pyplot(fig)
+
+    # Gráfico 5: Heatmap Absoluto
+    elif opcion_grafico == "5. Comparativo de Votos Absolutos por Puesto y Candidato (Matriz)":
+        matriz_votos = df_actual.pivot_table(index='PUESNOMBRE', columns='CANDIDATO_CORTO', values='VOTOS', aggfunc='sum').fillna(0)
+        top_cand_global = df_actual.groupby('CANDIDATO_CORTO')['VOTOS'].sum().sort_values(ascending=False).index
+        matriz_votos = matriz_votos[top_cand_global].sort_values(by=top_cand_global[0], ascending=False)
+        
+        fig, ax = plt.subplots(figsize=(14, 8))
+        sns.heatmap(matriz_votos, annot=True, fmt=",.0f", cmap="Blues", linewidths=.5, cbar_kws={'label': 'Votos absolutos'}, ax=ax)
+        plt.title("Comparativo de votos absolutos por puesto y candidato\nMadrid, Cundinamarca", fontsize=12, fontweight='bold', pad=15)
+        plt.xticks(rotation=35, ha='right')
+        plt.xlabel("Candidato")
+        plt.ylabel("Puesto de votación")
+        st.pyplot(fig)
