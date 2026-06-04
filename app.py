@@ -27,19 +27,27 @@ def load_and_normalize_data():
     df_actual = df_actual[~df_actual['CANNOMBRE'].isin(['CANDIDATOS TOTALES'])]
     
     # Acortar nombres de candidatos para los gráficos estilo tus referentes
+# 1. Pasamos TODOS los nombres de la base a formato "Título" automáticamente
+    # Esto convierte "SONDRA MACOLLINS" en "Sondra Macollins"
+    df_actual['CANNOMBRE_LIMPIO'] = df_actual['CANNOMBRE'].astype(str).str.title()
+
+    # 2. Diccionario de nombres cortos (ahora con las llaves en formato Título)
     mapeo_nombres = {
-        'IVÁN CEPEDA CASTRO': 'Cepeda',
-        'ABELARDO DE LA ESPRIELLA': 'De la Espriella',
-        'PALOMA VALENCIA LASERNA': 'P. Valencia',
-        'SERGIO FAJARDO VALDERRAMA': 'Fajardo',
-        'CLAUDIA LÓPEZ': 'C. López',
-        'RAÚL SANTIAGO BOTERO JARAMILLO': 'Botero J.',
-        'ÓSCAR MAURICIO LIZCANO ARANGO': 'Lizcano',
-        'MIGUEL URIBE LONDOÑO': 'M. Uribe',
-        'LUIS GILBERTO MURILLO URRUTIA': 'Murillo',
-        'ROY BARRERAS': 'Barreras'
+        'Iván Cepeda Castro': 'Cepeda',
+        'Abelardo De La Espriella': 'De la Espriella',
+        'Paloma Valencia Laserna': 'P. Valencia',
+        'Sergio Fajardo Valderrama': 'Fajardo',
+        'Claudia López': 'C. López',
+        'Raúl Santiago Botero Jaramillo': 'Botero J.',
+        'Óscar Mauricio Lizcano Arango': 'Lizcano',
+        'Miguel Uribe Londoño': 'M. Uribe',
+        'Luis Gilberto Murillo Urrutia': 'Murillo',
+        'Roy Barreras': 'Barreras'
     }
-    df_actual['CANDIDATO_CORTO'] = df_actual['CANNOMBRE'].map(mapeo_nombres).fillna(df_actual['CANNOMBRE'])
+    
+    # 3. Aplicamos el mapeo sobre la columna limpia. 
+    # Si el candidato no está en el mapa, se queda con su nombre en formato "Sondra Macollins"
+    df_actual['CANDIDATO_CORTO'] = df_actual['CANNOMBRE_LIMPIO'].map(mapeo_nombres).fillna(df_actual['CANNOMBRE_LIMPIO'])
     
     # Cargar datos 2022
     df_2022_raw = pd.read_csv("2022.csv", sep=";")
