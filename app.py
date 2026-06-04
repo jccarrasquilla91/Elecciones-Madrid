@@ -4,6 +4,7 @@ import folium
 from streamlit_folium import st_folium
 import matplotlib.pyplot as plt
 import seaborn as sns
+import plotly.express as px
 import re
 
 st.set_page_config(page_title="Estrategia Electoral Madrid", layout="wide")
@@ -158,11 +159,11 @@ with tab1:
             """, unsafe_allow_html=True)
 
 # =========================================================
-# PESTAÑA 2: COMPLEMENTO - GRÁFICOS AVANZADOS
+# PESTAÑA 2: COMPLEMENTO - GRÁFICOS INTERACTIVOS (PLOTLY)
 # =========================================================
 with tab2:
-    st.subheader("Galería de Inteligencia Analítica")
-    st.write("Selecciona una opción del menú para renderizar los gráficos de distribución y cruces matriciales.")
+    st.subheader("📊 Galería de Inteligencia Analítica Interactiva")
+    st.write("Pasa el cursor sobre las barras o celdas para ver el detalle de los votos. Usa la leyenda para filtrar.")
     
     opcion_grafico = st.selectbox("Selecciona la visualización estratégica:", [
         "1. Ranking General de Votos por Candidato",
@@ -172,78 +173,76 @@ with tab2:
         "5. Comparativo de Votos Absolutos por Puesto y Candidato (Matriz)"
     ])
     
-    # Gráfico 1: Ranking General
+    # --- PROCESAMIENTO BASE PARA MATRICES ---
+    # Crear la matriz pivoteada de puestos vs candidatos
+    matriz_votos = df_actual.pivot_table(index='PUESNOMBRE', columns='CANDIDATO_CORTO', values='VOTOS', aggfunc='sum').fillna(0)
+    # Ordenar columnas por los más votados a nivel municipal
+    top_cand_global = df_actual.groupby('CANDIDATO_CORTO')['VOTOS'].sum().sort_values(ascending=False).index
+    matriz_votos = matriz_votos[top_cand_global].sort_values(by=top_cand_global[0], ascending=False)
+    
+    # -----------------------------------------------------
+    # GRÁFICO 1: RANKING GENERAL (INTERACTIVO)
+    # -----------------------------------------------------
     if opcion_grafico == "1. Ranking General de Votos por Candidato":
         ranking_gen = df_actual.groupby('CANDIDATO_CORTO')['VOTOS'].sum().sort_values(ascending=False).reset_index()
-        fig, ax = plt.subplots(figsize=(10, 5))
-        sns.barplot(data=ranking_gen, x='VOTOS', y='CANDIDATO_CORTO', palette="tab10", ax=ax)
-        for index, value in enumerate(ranking_gen['VOTOS']):
-            ax.text(value + 100, index, f"{value:,}", va='center', fontsize=10)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        plt.title("Ranking general de votos por candidato\nMadrid, Cundinamarca", fontsize=12, fontweight='bold', pad=15)
-        plt.xlabel("Total de votos")
-        plt.ylabel("Candidato")
-        st.pyplot(fig)
+        
+        fig = px.bar(ranking_gen, x='VOTOS', y='CANDIDATO_CORTO', orientation='h',
+                     title="Ranking General de Votos por Candidato",
+                     labels={'VOTOS': 'Total de Votos', 'CANDIDATO_CORTO': 'Candidato'},
+                     text_auto=',.0f', color='VOTOS', color_continuous_scale='Viridis')
+        fig.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
 
-    # Gráfico 2: Ganador por Puesto
+    # -----------------------------------------------------
+    # GRÁFICO 2: GANADOR POR PUESTO (INTERACTIVO)
+    # -----------------------------------------------------
     elif opcion_grafico == "2. Ganador Absoluto por Puesto de Votación":
         puesto_cand = df_actual.groupby(['PUESNOMBRE', 'CANDIDATO_CORTO'])['VOTOS'].sum().reset_index()
         idx_ganadores = puesto_cand.groupby('PUESNOMBRE')['VOTOS'].idxmax()
-        ganadores_puesto = puesto_cand.loc[idx_ganadores].sort_values(by='VOTOS', ascending=False)
+        ganadores_puesto = puesto_cand.loc[idx_ganadores].sort_values(by='VOTOS', ascending=True)
         
-        fig, ax = plt.subplots(figsize=(12, 7))
-        colores_ganadores = {"Cepeda": "#B03A2E", "De la Espriella": "#2E86C1"}
-        sns.barplot(data=ganadores_puesto, x='VOTOS', y='PUESNOMBRE', hue='CANDIDATO_CORTO', palette=colores_ganadores, dodge=False, ax=ax)
-        for index, row in enumerate(ganadores_puesto.itertuples()):
-            ax.text(row.VOTOS + 30, index, f"{row.CANDIDATO_CORTO} ({row.VOTOS:,})", va='center', fontsize=9)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        plt.title("Ganador por puesto de votación\nMadrid, Cundinamarca", fontsize=12, fontweight='bold', pad=15)
-        plt.xlabel("Votos del ganador en el puesto")
-        plt.ylabel("Puesto de votación")
-        st.pyplot(fig)
+        fig = px.bar(ganadores_puesto, x='VOTOS', y='PUESNOMBRE', color='CANDIDATO_CORTO',
+                     orientation='h', title="Ganador Absoluto por Puesto de Votación",
+                     labels={'VOTOS': 'Votos Obtenidos', 'PUESNOMBRE': 'Puesto de Votación', 'CANDIDATO_CORTO': 'Ganador'},
+                     color_discrete_map={"Cepeda": "#B03A2E", "De la Espriella": "#2E86C1"},
+                     text_auto=',.0f')
+        st.plotly_chart(fig, use_container_width=True)
 
-    # Gráfico 3: Barras Apiladas
+    # -----------------------------------------------------
+    # GRÁFICO 3: BARRAS APILADAS % (INTERACTIVO)
+    # -----------------------------------------------------
     elif opcion_grafico == "3. Participación Porcentual de cada Candidato por Puesto (Apilado)":
-        matriz_votos = df_actual.pivot_table(index='PUESNOMBRE', columns='CANDIDATO_CORTO', values='VOTOS', aggfunc='sum').fillna(0)
         matriz_porcentaje = matriz_votos.div(matriz_votos.sum(axis=1), axis=0) * 100
-        matriz_porcentaje = matriz_porcentaje.loc[matriz_votos.sum(axis=1).sort_values(ascending=False).index]
+        matriz_porcentaje = matriz_porcentaje.reset_index()
         
-        fig, ax = plt.subplots(figsize=(14, 7))
-        matriz_porcentaje.plot(kind='bar', stacked=True, ax=ax, cmap="tab20")
-        plt.title("Participación porcentual de cada candidato por puesto\nMadrid, Cundinamarca", fontsize=12, fontweight='bold', pad=15)
-        plt.xticks(rotation=45, ha='right', fontsize=9)
-        plt.ylabel("Participación (%)")
-        plt.xlabel("Puesto de votación")
-        plt.legend(title="Candidato", bbox_to_anchor=(1.01, 1), loc='upper left')
-        st.pyplot(fig)
+        # Derretir la matriz para que Plotly la entienda fácilmente
+        df_melt = matriz_porcentaje.melt(id_vars='PUESNOMBRE', var_name='Candidato', value_name='Porcentaje')
+        
+        fig = px.bar(df_melt, x='PUESNOMBRE', y='Porcentaje', color='Candidato',
+                     title="Participación Porcentual de cada Candidato por Puesto",
+                     labels={'Porcentaje': 'Participación (%)', 'PUESNOMBRE': 'Puesto de Votación'},
+                     color_continuous_scale=px.colors.qualitative.Plotly)
+        fig.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig, use_container_width=True)
 
-    # Gráfico 4: Heatmap Porcentual
+    # -----------------------------------------------------
+    # GRÁFICO 4: HEATMAP PORCENTUAL % (INTERACTIVO)
+    # -----------------------------------------------------
     elif opcion_grafico == "4. Mapa de Calor: Dominancia Territorial por Candidato (%)":
-        matriz_votos = df_actual.pivot_table(index='PUESNOMBRE', columns='CANDIDATO_CORTO', values='VOTOS', aggfunc='sum').fillna(0)
         matriz_porcentaje = matriz_votos.div(matriz_votos.sum(axis=1), axis=0) * 100
-        top_cand_global = df_actual.groupby('CANDIDATO_CORTO')['VOTOS'].sum().sort_values(ascending=False).index
-        matriz_porcentaje = matriz_porcentaje[top_cand_global].sort_values(by=top_cand_global[0], ascending=False)
         
-        fig, ax = plt.subplots(figsize=(14, 8))
-        sns.heatmap(matriz_porcentaje, annot=True, fmt=".1f", cmap="YlOrRd", linewidths=.5, cbar_kws={'label': '% de votos en el puesto'}, ax=ax)
-        plt.title("Mapa de calor: dominancia territorial por candidato (%)\nMadrid, Cundinamarca", fontsize=12, fontweight='bold', pad=15)
-        plt.xticks(rotation=35, ha='right')
-        plt.xlabel("Candidato")
-        plt.ylabel("Puesto de votación")
-        st.pyplot(fig)
+        fig = px.imshow(matriz_porcentaje, text_auto=".1f",
+                        aspect="auto", color_continuous_scale="YlOrRd",
+                        title="Mapa de Calor: Dominancia Territorial por Candidato (%)",
+                        labels=dict(x="Candidato", y="Puesto de votación", color="% de Votos"))
+        st.plotly_chart(fig, use_container_width=True)
 
-    # Gráfico 5: Heatmap Absoluto
+    # -----------------------------------------------------
+    # GRÁFICO 5: HEATMAP ABSOLUTO (INTERACTIVO)
+    # -----------------------------------------------------
     elif opcion_grafico == "5. Comparativo de Votos Absolutos por Puesto y Candidato (Matriz)":
-        matriz_votos = df_actual.pivot_table(index='PUESNOMBRE', columns='CANDIDATO_CORTO', values='VOTOS', aggfunc='sum').fillna(0)
-        top_cand_global = df_actual.groupby('CANDIDATO_CORTO')['VOTOS'].sum().sort_values(ascending=False).index
-        matriz_votos = matriz_votos[top_cand_global].sort_values(by=top_cand_global[0], ascending=False)
-        
-        fig, ax = plt.subplots(figsize=(14, 8))
-        sns.heatmap(matriz_votos, annot=True, fmt=",.0f", cmap="Blues", linewidths=.5, cbar_kws={'label': 'Votos absolutos'}, ax=ax)
-        plt.title("Comparativo de votos absolutos por puesto y candidato\nMadrid, Cundinamarca", fontsize=12, fontweight='bold', pad=15)
-        plt.xticks(rotation=35, ha='right')
-        plt.xlabel("Candidato")
-        plt.ylabel("Puesto de votación")
-        st.pyplot(fig)
+        fig = px.imshow(matriz_votos, text_auto=",.0f",
+                        aspect="auto", color_continuous_scale="Blues",
+                        title="Comparativo de Votos Absolutos por Puesto y Candidato",
+                        labels=dict(x="Candidato", y="Puesto de votación", color="Votos Absolutos"))
+        st.plotly_chart(fig, use_container_width=True)
