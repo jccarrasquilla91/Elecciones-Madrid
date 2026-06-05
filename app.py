@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
+from folium.features import DivIcon
 import plotly.express as px
 import re
 
@@ -112,11 +113,11 @@ df_actual, df_final = load_and_normalize_data()
 st.title("🎯 Centro de Analítica Electoral - Madrid, Cundinamarca")
 st.write("---")
 
-tab1, tab2 = st.tabs(["🗺️ Mapa de Zonas y Alertas", "📈 Gráficos Avanzados de Dominancia"])
+tab1, tab2 = st.tabs(["🗺️ Mapa de Rendimiento y Alertas", "📈 Gráficos Avanzados de Dominancia"])
 
-# =========================================================
+# ---------------------------------------------------------
 # PESTAÑA 1: MAPA DE RENDIMIENTO Y VOTOS EN DISPUTA
-# =========================================================
+# ---------------------------------------------------------
 with tab1:
     tot_votos_mun = int(df_final['TOTAL_VOTOS_ACTUAL'].sum())
     st.metric("Votos Válidos Municipales (Periodo Actual)", f"{tot_votos_mun:,} votos")
@@ -142,15 +143,15 @@ with tab1:
         # Función para asignar color según el tamaño del "botín" de votos sueltos
         def definir_color_bolsa(votos_sueltos):
             if votos_sueltos > 700:
-                return "#E65100" # Naranja Oscuro (Máxima prioridad / Más de 700 votos disponibles)
+                return "#E65100"  # Naranja Oscuro (Prioridad Crítica)
             elif votos_sueltos > 400:
-                return "#FB8C00" # Naranja Medio (Prioridad Alta / 400 a 700 votos)
+                return "#FB8C00"  # Naranja Medio (Prioridad Alta)
             elif votos_sueltos > 150:
-                return "#FEE08B" # Amarillo (Prioridad Media / 150 a 400 votos)
+                return "#FEE08B"  # Amarillo (Prioridad Media)
             else:
-                return "#D5F5E3" # Verde Claro (Baja concentración / Menos de 150 votos)
+                return "#D5F5E3"  # Verde Claro (Estable)
 
-        # 3. Pintar los puestos en el mapa
+        # 3. Pintar los puestos y las etiquetas en el mapa
         for idx, row in df_mapa_avanzado.iterrows():
             color_bolsa = definir_color_bolsa(row['BOLSA_DISPUTA'])
             zona_id = int(row.get('ZONA', 1))
@@ -170,10 +171,11 @@ with tab1:
             </div>
             """
             
+            # Marcador de Burbuja Proporcional
             folium.CircleMarker(
                 location=[row['latitude'], row['longitude']],
                 radius=int(row['TOTAL_VOTOS_ACTUAL'] / 400) + 4,
-                color="#2C3E50", # Borde oscuro para contraste
+                color="#2C3E50",
                 weight=1.5,
                 fill=True,
                 fill_color=color_bolsa,
@@ -182,9 +184,21 @@ with tab1:
                 tooltip=f"🎯 {row['PUESNOMBRE']} | Votos Disponibles: {int(row['BOLSA_DISPUTA'])}"
             ).add_to(m)
             
+            # OPCIÓN 1: Etiqueta de texto fija sobre el mapa para identificar el punto
+            folium.Marker(
+                location=[row['latitude'], row['longitude']],
+                icon=DivIcon(
+                    icon_size=(150, 36),
+                    icon_anchor=(-12, 8),
+                    html=f"""<div style="font-size: 9px; font-family: Arial; font-weight: bold; color: #2C3E50; 
+                             text-shadow: 1px 1px 2px white; white-space: nowrap;">
+                             {row['PUESNOMBRE'][:20]}...</div>"""
+                )
+            ).add_to(m)
+            
         st_folium(m, width="100%", height=500)
         
-        # Leyenda de prioridad estratégica en la pantalla
+        # Leyenda de prioridad estratégica
         st.markdown("""
         <div style="display: flex; gap: 15px; justify-content: center; background-color: #F8F9FA; padding: 10px; border-radius: 5px; margin-top: 10px; font-size: 13px;">
             <div><b>Prioridad de Conquista Electoral:</b></div>
@@ -195,19 +209,39 @@ with tab1:
         </div>
         """, unsafe_allow_html=True)
 
+        # OPCIÓN 2: Tabla de datos ordenada justo debajo del mapa como glosario/leyenda extendida
+        st.write("---")
+        st.subheader("📋 Glosario General del Mapa: Puestos según Volumen en Disputa")
+        
+        df_tabla_leyenda = df_mapa_avanzado[['PUESNOMBRE', 'ZONA', 'BOLSA_DISPUTA', 'TOTAL_VOTOS_ACTUAL']].copy()
+        df_tabla_leyenda.columns = ['Puesto de Votación', 'Zona Electoral', 'Votos Alternativos en Disputa', 'Votación Total del Puesto']
+        df_tabla_leyenda = df_tabla_leyenda.sort_values(by='Votos Alternativos en Disputa', ascending=False).reset_index(drop=True)
+        
+        st.dataframe(
+            df_tabla_leyenda.style.format({
+                'Votos Alternativos en Disputa': '{:,.0f}',
+                'Votación Total del Puesto': '{:,.0f}',
+                'Zona Electoral': 'Zona 0{:,.0f}'
+            }), 
+            use_container_width=True
+        )
+
     with col2:
         st.markdown("## **Top estratégicos**")
         st.caption("Filtro ejecutivo para toma de decisiones.")
         
         st.markdown("### ⚠️ **Puestos a recuperar**")
         df_recuperar = df_final[(df_final['DELTA_PTS'] < 0) & (df_final['ES_NUEVO'] == False)].sort_values(by='DELTA_PTS')
-        for _, row in df_recuperar.iterrows():
-            st.markdown(f"""
-                <div style="display: flex; justify-content: space-between; border-bottom: 1px dotted #BDC3C7; padding: 6px 0;">
-                    <span style="color: #2C3E50;">{row['PUESNOMBRE']}</span>
-                    <span style="color: #C0392B; font-weight: bold;">{row['DELTA_PTS']:.1f} pts • {int(row['VOTOS_ACTUAL']):,} votos</span>
-                </div>
-            """, unsafe_allow_html=True)
+        if df_recuperar.empty:
+            st.success("¡No hay pérdidas registradas frente a 2022!")
+        else:
+            for _, row in df_recuperar.iterrows():
+                st.markdown(f"""
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px dotted #BDC3C7; padding: 6px 0;">
+                        <span style="color: #2C3E50;">{row['PUESNOMBRE']}</span>
+                        <span style="color: #C0392B; font-weight: bold;">{row['DELTA_PTS']:.1f} pts • {int(row['VOTOS_ACTUAL']):,} votos</span>
+                    </div>
+                """, unsafe_allow_html=True)
             
         st.markdown("### 📊 **Puestos de volumen**")
         df_volumen = df_final.sort_values(by='VOTOS_ACTUAL', ascending=False).head(5)
@@ -218,6 +252,7 @@ with tab1:
                     <span style="color: #1A5276; font-weight: bold;">{row['PORCENTAJE_ACTUAL']:.1f}% • {int(row['VOTOS_ACTUAL']):,} votos</span>
                 </div>
             """, unsafe_allow_html=True)
+
 # ---------------------------------------------------------
 # PESTAÑA 2: COMPLEMENTO - GRÁFICOS INTERACTIVOS (PLOTLY)
 # ---------------------------------------------------------
@@ -288,29 +323,4 @@ with tab2:
         fig = px.imshow(matriz_votos, text_auto=",.0f", aspect="auto", color_continuous_scale="Blues",
                         title="Comparativo de Votos Absolutos por Puesto y Candidato",
                         labels=dict(x="Candidato", y="Puesto de votación", color="Votos Absolutos"))
-
-# --- NUEVO BLOQUE ANALÍTICO EN APP.PY ---
-        st.write("---")
-        st.subheader("💡 Análisis de Estrategia: La Bolsa de Votos en Disputa")
-        st.markdown("""
-        En una eventual segunda vuelta o consolidación de fuerzas, los votos de candidatos como **Fajardo, Claudia López y P. Valencia** 
-        son el eje decisivo. Aquí se muestra cuántos votos están 'disponibles' en cada zona del municipio:
-        """)
-        
-        # Procesar la bolsa de votos por zona en el código
-        df_actual['Alternativos'] = df_actual['CANDIDATO_CORTO'].isin(['Fajardo', 'C. López', 'P. Valencia'])
-        df_bolsa = df_actual.groupby(['ZONA', 'CANDIDATO_CORTO'])['VOTOS'].sum().unstack().fillna(0)
-        df_bolsa['Bolsa Total'] = df_bolsa.get('Fajardo', 0) + df_bolsa.get('C. López', 0) + df_bolsa.get('P. Valencia', 0)
-        df_bolsa = df_bolsa.reset_index()
-        
-        # Crear un gráfico de barras interactivo con Plotly para esta sección
-        fig_bolsa = px.bar(df_bolsa, x='ZONA', y='Bolsa Total', 
-                           title="Volumen de Votos Disponibles (Terceras Fuerzas) por Zona",
-                           labels={'ZONA': 'Zona Electoral DIVIPOLE', 'Bolsa Total': 'Votos Disponibles'},
-                           text_auto=True, color='Bolsa Total', color_continuous_scale='Cividis')
-        fig_bolsa.update_layout(xaxis=dict(tickmode='array', tickvals=[1, 2, 99], ticktext=['Zona 01 (Occ)', 'Zona 02 (Ori)', 'Zona 99 (Rural)']))
-        st.plotly_chart(fig_bolsa, use_container_width=True)
-
-
-        
         st.plotly_chart(fig, use_container_width=True)
