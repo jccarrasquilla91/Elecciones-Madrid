@@ -114,63 +114,84 @@ st.write("---")
 
 tab1, tab2 = st.tabs(["🗺️ Mapa de Zonas y Alertas", "📈 Gráficos Avanzados de Dominancia"])
 
-# ---------------------------------------------------------
-# PESTAÑA 1: MAPA Y ESTRATEGIA ("CUARTO DE GUERRA")
-# ---------------------------------------------------------
+# =========================================================
+# PESTAÑA 1: MAPA DE RENDIMIENTO Y VOTOS EN DISPUTA
+# =========================================================
 with tab1:
     tot_votos_mun = int(df_final['TOTAL_VOTOS_ACTUAL'].sum())
     st.metric("Votos Válidos Municipales (Periodo Actual)", f"{tot_votos_mun:,} votos")
     
     col1, col2 = st.columns([1.8, 1.2])
     with col1:
-        st.subheader("Rendimiento Territorial por Zonas Electorales")
-        m = folium.Map(location=[4.7324, -74.2642], zoom_start=12, tiles="CartoDB positron")
+        st.subheader("📍 Mapa de Calor Electoral: Votos Alternativos en Disputa")
+        st.markdown("""
+        Los colores del mapa representan la **concentración de votos de centro e indecisos** 
+        (Fajardo + C. López + P. Valencia). Pasa el cursor para ver el botín electoral por colegio.
+        """)
         
-        # Colores oficiales para las macro-regiones DIVIPOLE de Madrid
-        colores_zonas = {
-            1: "#27AE60",   # Zona 01 - Occidental (Verde)
-            2: "#8E44AD",   # Zona 02 - Centro-Oriental (Morado)
-            99: "#D35400"  # Zona 99 - Rural / Puente de Piedra (Naranja)
-        }
+        # 1. Calcular la bolsa de votos alternativos por puesto individual
+        df_actual['Es_Alternativo'] = df_actual['CANDIDATO_CORTO'].isin(['Fajardo', 'C. López', 'P. Valencia'])
+        votos_alternativos_puesto = df_actual[df_actual['Es_Alternativo']].groupby('PUESNOMBRE')['VOTOS'].sum().reset_index().rename(columns={'VOTOS': 'BOLSA_DISPUTA'})
         
-        for idx, row in df_final.iterrows():
-            zona_id = int(row.get('ZONA', 1))
-            color_zona = colores_zonas.get(zona_id, "#34495E")
-            
-            if row['ES_NUEVO']:
-                texto_variacion = "Puesto Nuevo (Sin histórico)"
+        # Unir esta bolsa al dataframe final del mapa
+        df_mapa_avanzado = pd.merge(df_final, votos_alternativos_puesto, on='PUESNOMBRE', how='left').fillna(0)
+        
+        # 2. Configurar mapa base centrado en Madrid
+        m = folium.Map(location=[4.7324, -74.2642], zoom_start=13, tiles="CartoDB positron")
+        
+        # Función para asignar color según el tamaño del "botín" de votos sueltos
+        def definir_color_bolsa(votos_sueltos):
+            if votos_sueltos > 700:
+                return "#E65100" # Naranja Oscuro (Máxima prioridad / Más de 700 votos disponibles)
+            elif votos_sueltos > 400:
+                return "#FB8C00" # Naranja Medio (Prioridad Alta / 400 a 700 votos)
+            elif votos_sueltos > 150:
+                return "#FEE08B" # Amarillo (Prioridad Media / 150 a 400 votos)
             else:
-                texto_variacion = f"Variación: {row['DELTA_PTS']:.1f} pts"
+                return "#D5F5E3" # Verde Claro (Baja concentración / Menos de 150 votos)
+
+        # 3. Pintar los puestos en el mapa
+        for idx, row in df_mapa_avanzado.iterrows():
+            color_bolsa = definir_color_bolsa(row['BOLSA_DISPUTA'])
+            zona_id = int(row.get('ZONA', 1))
             
             popup_html = f"""
-            <div style='font-family: Arial, sans-serif;'>
-                <h4 style='margin:0; color:{color_zona};'><b>ZONA 0{zona_id if zona_id != 99 else 99}</b></h4>
+            <div style='font-family: Arial, sans-serif; min-width: 200px;'>
+                <h4 style='margin:0; color:#2C3E50;'><b>{row['PUESNOMBRE']}</b></h4>
+                <p style='margin:3px 0; color:#566573; font-size:12px;'>Zona Electoral: 0{zona_id if zona_id != 99 else 99}</p>
                 <hr style='margin:5px 0;'>
-                <b>Puesto:</b> {row['PUESNOMBRE']}<br>
-                {texto_variacion}<br>
-                <b>Votos Actuales en este Puesto:</b> {int(row['TOTAL_VOTOS_ACTUAL']):,}<br>
+                <div style='background-color:#FDF2E9; padding:8px; border-radius:4px; border-left:4px solid #E65100;'>
+                    <b style='color:#E65100;'>🔥 Votos en Disputa: {int(row['BOLSA_DISPUTA']):,}</b><br>
+                    <span style='font-size:11px; color:#6E2C00;'>(Fajardo, C. López, P. Valencia)</span>
+                </div>
+                <br>
+                <b>Votos Cepeda:</b> {int(row['VOTOS_ACTUAL']):,}<br>
+                <b>Total Votos Puesto:</b> {int(row['TOTAL_VOTOS_ACTUAL']):,}<br>
             </div>
             """
             
             folium.CircleMarker(
                 location=[row['latitude'], row['longitude']],
-                radius=int(row['TOTAL_VOTOS_ACTUAL'] / 450) + 4,
-                color=color_zona,
+                radius=int(row['TOTAL_VOTOS_ACTUAL'] / 400) + 4,
+                color="#2C3E50", # Borde oscuro para contraste
+                weight=1.5,
                 fill=True,
-                fill_color=color_zona,
-                fill_opacity=0.6,
-                popup=folium.Popup(popup_html, max_width=250),
-                tooltip=f"Zona 0{zona_id if zona_id != 99 else 99} - {row['PUESNOMBRE']}"
+                fill_color=color_bolsa,
+                fill_opacity=0.85,
+                popup=folium.Popup(popup_html, max_width=280),
+                tooltip=f"🎯 {row['PUESNOMBRE']} | Votos Disponibles: {int(row['BOLSA_DISPUTA'])}"
             ).add_to(m)
             
         st_folium(m, width="100%", height=500)
         
-        # Leyenda explicativa en pantalla
+        # Leyenda de prioridad estratégica en la pantalla
         st.markdown("""
-        <div style="display: flex; gap: 20px; justify-content: center; background-color: #F8F9FA; padding: 10px; border-radius: 5px; margin-top: 10px;">
-            <div><span style="color: #27AE60; font-size: 20px;">■</span> <b>Zona 01 (Occidente):</b> 11 Puestos | 138 Mesas</div>
-            <div><span style="color: #8E44AD; font-size: 20px;">■</span> <b>Zona 02 (Centro-Oriente):</b> 9 Puestos | 126 Mesas</div>
-            <div><span style="color: #D35400; font-size: 20px;">■</span> <b>Zona 99 (Rural):</b> 1 Puesto | 10 Mesas</div>
+        <div style="display: flex; gap: 15px; justify-content: center; background-color: #F8F9FA; padding: 10px; border-radius: 5px; margin-top: 10px; font-size: 13px;">
+            <div><b>Prioridad de Conquista Electoral:</b></div>
+            <div><span style="color: #E65100; font-size: 18px;">■</span> Crítica (>700 votos)</div>
+            <div><span style="color: #FB8C00; font-size: 18px;">■</span> Alta (400 - 700)</div>
+            <div><span style="color: #FEE08B; font-size: 18px;">■</span> Media (150 - 400)</div>
+            <div><span style="color: #D5F5E3; font-size: 18px;">■</span> Estable (<150)</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -180,16 +201,13 @@ with tab1:
         
         st.markdown("### ⚠️ **Puestos a recuperar**")
         df_recuperar = df_final[(df_final['DELTA_PTS'] < 0) & (df_final['ES_NUEVO'] == False)].sort_values(by='DELTA_PTS')
-        if df_recuperar.empty:
-            st.success("¡No hay pérdidas registradas frente a 2022!")
-        else:
-            for _, row in df_recuperar.iterrows():
-                st.markdown(f"""
-                    <div style="display: flex; justify-content: space-between; border-bottom: 1px dotted #BDC3C7; padding: 6px 0;">
-                        <span style="color: #2C3E50;">{row['PUESNOMBRE']}</span>
-                        <span style="color: #C0392B; font-weight: bold;">{row['DELTA_PTS']:.1f} pts • {int(row['VOTOS_ACTUAL']):,} votos</span>
-                    </div>
-                """, unsafe_allow_html=True)
+        for _, row in df_recuperar.iterrows():
+            st.markdown(f"""
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px dotted #BDC3C7; padding: 6px 0;">
+                    <span style="color: #2C3E50;">{row['PUESNOMBRE']}</span>
+                    <span style="color: #C0392B; font-weight: bold;">{row['DELTA_PTS']:.1f} pts • {int(row['VOTOS_ACTUAL']):,} votos</span>
+                </div>
+            """, unsafe_allow_html=True)
             
         st.markdown("### 📊 **Puestos de volumen**")
         df_volumen = df_final.sort_values(by='VOTOS_ACTUAL', ascending=False).head(5)
@@ -200,7 +218,6 @@ with tab1:
                     <span style="color: #1A5276; font-weight: bold;">{row['PORCENTAJE_ACTUAL']:.1f}% • {int(row['VOTOS_ACTUAL']):,} votos</span>
                 </div>
             """, unsafe_allow_html=True)
-
 # ---------------------------------------------------------
 # PESTAÑA 2: COMPLEMENTO - GRÁFICOS INTERACTIVOS (PLOTLY)
 # ---------------------------------------------------------
