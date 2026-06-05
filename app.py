@@ -271,4 +271,29 @@ with tab2:
         fig = px.imshow(matriz_votos, text_auto=",.0f", aspect="auto", color_continuous_scale="Blues",
                         title="Comparativo de Votos Absolutos por Puesto y Candidato",
                         labels=dict(x="Candidato", y="Puesto de votación", color="Votos Absolutos"))
+
+# --- NUEVO BLOQUE ANALÍTICO EN APP.PY ---
+        st.write("---")
+        st.subheader("💡 Análisis de Estrategia: La Bolsa de Votos en Disputa")
+        st.markdown("""
+        En una eventual segunda vuelta o consolidación de fuerzas, los votos de candidatos como **Fajardo, Claudia López y P. Valencia** 
+        son el eje decisivo. Aquí se muestra cuántos votos están 'disponibles' en cada zona del municipio:
+        """)
+        
+        # Procesar la bolsa de votos por zona en el código
+        df_actual['Alternativos'] = df_actual['CANDIDATO_CORTO'].isin(['Fajardo', 'C. López', 'P. Valencia'])
+        df_bolsa = df_actual.groupby(['ZONA', 'CANDIDATO_CORTO'])['VOTOS'].sum().unstack().fillna(0)
+        df_bolsa['Bolsa Total'] = df_bolsa.get('Fajardo', 0) + df_bolsa.get('C. López', 0) + df_bolsa.get('P. Valencia', 0)
+        df_bolsa = df_bolsa.reset_index()
+        
+        # Crear un gráfico de barras interactivo con Plotly para esta sección
+        fig_bolsa = px.bar(df_bolsa, x='ZONA', y='Bolsa Total', 
+                           title="Volumen de Votos Disponibles (Terceras Fuerzas) por Zona",
+                           labels={'ZONA': 'Zona Electoral DIVIPOLE', 'Bolsa Total': 'Votos Disponibles'},
+                           text_auto=True, color='Bolsa Total', color_continuous_scale='Cividis')
+        fig_bolsa.update_layout(xaxis=dict(tickmode='array', tickvals=[1, 2, 99], ticktext=['Zona 01 (Occ)', 'Zona 02 (Ori)', 'Zona 99 (Rural)']))
+        st.plotly_chart(fig_bolsa, use_container_width=True)
+
+
+        
         st.plotly_chart(fig, use_container_width=True)
